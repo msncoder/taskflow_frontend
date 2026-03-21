@@ -17,7 +17,7 @@ export default function DashboardLayoutClient({ children }: { children: ReactNod
 
     const fetchUser = async () => {
       try {
-        const res = await apiClient.get('/users/me');
+        const res = await apiClient.get('/auth/me');
         if (mounted) {
           setUser(res.data);
         }

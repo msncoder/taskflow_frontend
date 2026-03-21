@@ -46,7 +46,7 @@ export default function LoginPage() {
 
       // If successful, tokens are in httpOnly cookies. 
       // Now fetch user details via our proxy
-      const meRes = await apiClient.get('/users/me');
+      const meRes = await apiClient.get('/auth/me');
       setUser(meRes.data);
       router.push('/dashboard');
     } catch (err: any) {

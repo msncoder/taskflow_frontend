@@ -17,7 +17,7 @@ export default function TasksPage() {
     queryKey: ['tasks'],
     queryFn: async () => {
       const res = await apiClient.get('/tasks/');
-      return res.data;
+      return res.data.tasks;
     },
   });
 

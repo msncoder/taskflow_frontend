@@ -7,17 +7,18 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     // Call the actual backend login endpoint
-    // FastAPI requires form data for OAuth2PasswordRequestForm standard
-    const formData = new URLSearchParams();
-    formData.append('username', body.email); // FastAPI OAuth2 uses 'username'
-    formData.append('password', body.password);
+    // Backend expects a JSON payload matching LoginRequest schema
+    const payload = {
+      email: body.email,
+      password: body.password
+    };
 
     const response = await fetch(`${BACKEND_URL}/auth/login`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Type': 'application/json',
       },
-      body: formData.toString(),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();

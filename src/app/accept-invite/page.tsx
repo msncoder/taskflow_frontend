@@ -57,7 +57,7 @@ export default function AcceptInvitePage() {
         throw new Error(errorData.detail || 'Failed to accept invitation');
       }
 
-      const meRes = await apiClient.get('/users/me');
+      const meRes = await apiClient.get('/auth/me');
       setUser(meRes.data);
       router.push('/dashboard');
     } catch (err: any) {

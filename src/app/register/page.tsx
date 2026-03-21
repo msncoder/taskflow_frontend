@@ -45,7 +45,7 @@ export default function RegisterPage() {
         throw new Error(errorData.detail || 'Failed to register');
       }
 
-      const meRes = await apiClient.get('/users/me');
+      const meRes = await apiClient.get('/auth/me');
       setUser(meRes.data);
       router.push('/dashboard');
     } catch (err: any) {

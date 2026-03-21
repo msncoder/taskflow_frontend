@@ -71,6 +71,16 @@ export default function TaskDetailPage() {
     }
   });
 
+  // Delete Comment Mutation
+  const deleteCommentMutation = useMutation({
+    mutationFn: async (commentId: string) => {
+      await apiClient.delete(`/tasks/${taskId}/comments/${commentId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['comments', taskId] });
+    }
+  });
+
   if (taskLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -256,12 +266,27 @@ export default function TaskDetailPage() {
                     {comment.author.full_name.charAt(0)}
                   </div>
                   <div className="flex-1">
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 shadow-sm inline-block min-w-[200px] max-w-full">
-                      <div className="flex items-baseline gap-2 mb-1">
-                        <span className="font-semibold text-sm text-zinc-200">{comment.author.full_name}</span>
-                        <span className="text-xs text-zinc-500">
-                          {new Date(comment.created_at).toLocaleString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })}
-                        </span>
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 shadow-sm inline-block min-w-[200px] max-w-full group">
+                      <div className="flex items-baseline justify-between gap-4 mb-2">
+                        <div className="flex items-baseline gap-2">
+                          <span className="font-semibold text-sm text-zinc-200">{comment.author.full_name}</span>
+                          <span className="text-xs text-zinc-500">
+                            {new Date(comment.created_at).toLocaleString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })}
+                          </span>
+                        </div>
+                        {(user?.id === comment.author.id || isAdmin) && (
+                          <button
+                            onClick={() => {
+                              if (confirm('Delete this comment?')) {
+                                deleteCommentMutation.mutate(comment.id);
+                              }
+                            }}
+                            className="text-zinc-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                            title="Delete comment"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                       <p className="text-sm text-zinc-300 whitespace-pre-wrap">{comment.body}</p>
                     </div>
