@@ -4,45 +4,194 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth-store';
 import { apiClient } from '@/lib/api-client';
-import { UserPlus, UserX, Loader2, CheckCircle2, Clock } from 'lucide-react';
+import {
+  UserPlus,
+  UserX,
+  Loader2,
+  CheckCircle2,
+  Clock,
+  Trash2,
+  AlertTriangle,
+  X,
+} from 'lucide-react';
 import InviteModal from '@/components/users/InviteModal';
+
+/* -------------------------------------------------------------------------- */
+/* Confirm Modal                                                              */
+/* -------------------------------------------------------------------------- */
+
+interface ConfirmModalProps {
+  email: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  isLoading: boolean;
+}
+
+function DeleteConfirmModal({
+  email,
+  onConfirm,
+  onCancel,
+  isLoading,
+}: ConfirmModalProps) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-sm">
+        <div className="flex justify-between mb-4">
+          <div className="flex gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+              <AlertTriangle className="w-5 h-5 text-red-400" />
+            </div>
+            <div>
+              <h3 className="text-white font-semibold">Delete Invitation</h3>
+              <p className="text-xs text-zinc-500">
+                This action cannot be undone
+              </p>
+            </div>
+          </div>
+
+          <button onClick={onCancel}>
+            <X className="w-4 h-4 text-zinc-400" />
+          </button>
+        </div>
+
+        <p className="text-sm text-zinc-400 mb-6">
+          Revoke invitation for{' '}
+          <span className="text-zinc-200 font-medium">{email}</span>?
+        </p>
+
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={onCancel}
+            className="text-zinc-300 text-sm"
+            disabled={isLoading}
+          >
+            Cancel
+          </button>
+
+          <button
+            onClick={onConfirm}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm text-white"
+          >
+            {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* API FUNCTIONS (IMPORTANT FOR STABILITY)                                    */
+/* -------------------------------------------------------------------------- */
+
+const fetchUsers = async () => {
+  const res = await apiClient.get('/users/');
+  return res.data;
+};
+
+const fetchInvitations = async () => {
+  const res = await apiClient.get('/invitations/');
+  return res.data;
+};
+
+/* -------------------------------------------------------------------------- */
+/* MAIN PAGE                                                                  */
+/* -------------------------------------------------------------------------- */
 
 export default function UsersPage() {
   const { user } = useAuthStore();
   const queryClient = useQueryClient();
-  const [isInviteOpen, setIsInviteOpen] = useState(false);
 
-  // Fetch Users
-  const { data: users, isLoading: usersLoading } = useQuery({
+  const [isInviteOpen, setIsInviteOpen] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeleteEmail, setConfirmDeleteEmail] = useState('');
+
+  /* ----------------------------- USERS QUERY ----------------------------- */
+
+  const { data: users, isLoading } = useQuery({
     queryKey: ['users'],
-    queryFn: async () => {
-      const res = await apiClient.get('/users/');
-      return res.data; // List[UserRead]
-    },
+    queryFn: fetchUsers,
   });
 
-  // Fetch Invitations (Admin only technically)
+  /* -------------------------- INVITATIONS QUERY -------------------------- */
+
   const { data: invitations } = useQuery({
     queryKey: ['invitations'],
-    queryFn: async () => {
-      const res = await apiClient.get('/invitations/');
-      return res.data; // List[InvitationRead]
-    },
-    enabled: user?.role === 'admin' || user?.role === 'manager', // Let manager try, or strict admin based on backend rules
-    retry: false, // Don't retry if 403 Forbidden (managers might not have access depending on phase 3 implementation)
+    queryFn: fetchInvitations,
+    enabled: user?.role === 'admin' || user?.role === 'manager',
+
+    // ⭐ AUTO REFRESH FIXES
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
+    retry: false,
   });
 
-  // Deactivate User Mutation
+  /* --------------------------- MUTATIONS -------------------------------- */
+
+  // deactivate user
   const deactivateMutation = useMutation({
-    mutationFn: async (userId: string) => {
-      await apiClient.delete(`/users/${userId}`);
-    },
+    mutationFn: (id: string) => apiClient.delete(`/users/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
     },
   });
 
-  if (usersLoading) {
+  // delete invitation (OPTIMISTIC)
+  const deleteInvitationMutation = useMutation({
+    mutationFn: (id: string) =>
+      apiClient.delete(`/invitations/${id}`),
+
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ['invitations'] });
+
+      const previous =
+        queryClient.getQueryData<any[]>(['invitations']);
+
+      queryClient.setQueryData(['invitations'], (old: any[] = []) =>
+        old.filter((i) => i.id !== id)
+      );
+
+      return { previous };
+    },
+
+    onError: (_err, _id, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(
+          ['invitations'],
+          context.previous
+        );
+      }
+    },
+
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['invitations'] });
+    },
+  });
+
+  /* --------------------------- HANDLERS -------------------------------- */
+
+  const handleDeleteClick = (id: string, email: string) => {
+    setConfirmDeleteId(id);
+    setConfirmDeleteEmail(email);
+  };
+
+  const handleDeleteConfirm = () => {
+    if (!confirmDeleteId) return;
+
+    deleteInvitationMutation.mutate(confirmDeleteId);
+    setConfirmDeleteId(null);
+  };
+
+  const invalidateInvitations = () => {
+    queryClient.invalidateQueries({ queryKey: ['invitations'] });
+  };
+
+  /* --------------------------- LOADING -------------------------------- */
+
+  if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
@@ -50,21 +199,30 @@ export default function UsersPage() {
     );
   }
 
-  // Filter out the active user themselves so they don't accidentally deactivate themselves
   const canDeactivate = user?.role === 'admin';
+
+  /* -------------------------------------------------------------------------- */
+  /* UI                                                                         */
+  /* -------------------------------------------------------------------------- */
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+
+      {/* HEADER */}
+      <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white mb-1">Team Directory</h1>
-          <p className="text-sm text-zinc-400">Manage your company's users and roles.</p>
+          <h1 className="text-2xl text-white font-bold">
+            Team Directory
+          </h1>
+          <p className="text-zinc-400 text-sm">
+            Manage users and invitations
+          </p>
         </div>
-        
+
         {(user?.role === 'admin' || user?.role === 'manager') && (
           <button
             onClick={() => setIsInviteOpen(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-white text-sm"
           >
             <UserPlus className="w-4 h-4" />
             Invite Member
@@ -72,131 +230,149 @@ export default function UsersPage() {
         )}
       </div>
 
-      {/* Users Table */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-zinc-950/50 text-zinc-400 border-b border-zinc-800">
-              <tr>
-                <th className="px-6 py-4 font-medium">User</th>
-                <th className="px-6 py-4 font-medium">Role</th>
-                <th className="px-6 py-4 font-medium">Status</th>
-                <th className="px-6 py-4 font-medium text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-800">
-              {users?.map((member: any) => (
-                <tr key={member.id} className="hover:bg-zinc-800/20 transition-colors">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center font-medium text-white border border-zinc-700">
-                        {member.full_name.charAt(0)}
-                      </div>
-                      <div>
-                        <div className="font-medium text-white">{member.full_name}</div>
-                        <div className="text-zinc-500 text-xs">{member.email}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium capitalize ${
-                      member.role === 'admin' ? 'bg-fuchsia-500/10 text-fuchsia-400 border border-fuchsia-500/20' : 
-                      member.role === 'manager' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' : 
-                      'bg-zinc-800 text-zinc-300'
-                    }`}>
-                      {member.role}
+      {/* USERS TABLE */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+        <table className="w-full text-sm">
+          <tbody>
+            {users?.map((m: any) => (
+              <tr key={m.id} className="border-b border-zinc-800">
+                <td className="px-6 py-4 text-white">
+                  {m.full_name}
+                  <div className="text-xs text-zinc-500">
+                    {m.email}
+                  </div>
+                </td>
+
+                <td className="px-6 py-4 text-zinc-400 capitalize">
+                  {m.role}
+                </td>
+
+                <td className="px-6 py-4">
+                  {m.is_active ? (
+                    <span className="text-emerald-400 flex gap-1 items-center">
+                      <CheckCircle2 className="w-4 h-4" /> Active
                     </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    {member.is_active ? (
-                      <span className="flex items-center gap-1.5 text-emerald-400 text-xs font-medium">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Active
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1.5 text-red-400 text-xs font-medium">
-                        <UserX className="w-3.5 h-3.5" /> Deactivated
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    {canDeactivate && member.id !== user.id && member.role !== 'admin' && member.is_active && (
+                  ) : (
+                    <span className="text-red-400 flex gap-1 items-center">
+                      <UserX className="w-4 h-4" /> Deactivated
+                    </span>
+                  )}
+                </td>
+
+                <td className="px-6 py-4 text-right">
+                  {canDeactivate &&
+                    m.id !== user?.id &&
+                    m.role !== 'admin' &&
+                    m.is_active && (
                       <button
-                        onClick={() => {
-                          if (confirm(`Are you sure you want to deactivate ${member.full_name}?`)) {
-                            deactivateMutation.mutate(member.id);
-                          }
-                        }}
-                        className="text-red-400 hover:text-red-300 font-medium text-xs transition-colors"
-                        title="Deactivate User"
+                        onClick={() =>
+                          deactivateMutation.mutate(m.id)
+                        }
+                        className="text-red-400 text-xs"
                       >
                         Deactivate
                       </button>
                     )}
-                  </td>
-                </tr>
-              ))}
-              {(!users || users.length === 0) && (
-                <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-zinc-500">
-                    No users found.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      {/* Invitations Table (If any exist and user is authorized) */}
-      {invitations && invitations.length > 0 && (
-        <div className="mt-8 space-y-4">
-          <h2 className="text-xl font-bold tracking-tight text-white mb-1">Pending Invitations</h2>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-zinc-950/50 text-zinc-400 border-b border-zinc-800">
-                  <tr>
-                    <th className="px-6 py-4 font-medium">Email</th>
-                    <th className="px-6 py-4 font-medium">Role</th>
-                    <th className="px-6 py-4 font-medium">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800">
-                  {invitations.map((inv: any) => (
-                    <tr key={inv.id} className="hover:bg-zinc-800/20 transition-colors">
-                      <td className="px-6 py-4 font-medium text-zinc-300">{inv.email}</td>
-                      <td className="px-6 py-4 capitalize text-zinc-400">{inv.role}</td>
-                      <td className="px-6 py-4">
-                        {inv.is_accepted ? (
-                          <span className="flex items-center gap-1.5 text-emerald-400 text-xs font-medium">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> Accepted
-                          </span>
-                        ) : new Date(inv.expires_at) < new Date() ? (
-                          <span className="flex items-center gap-1.5 text-red-400 text-xs font-medium">
-                            <Clock className="w-3.5 h-3.5" /> Expired
-                          </span>
-                        ) : (
-                          <span className="flex items-center gap-1.5 text-amber-400 text-xs font-medium">
-                            <Clock className="w-3.5 h-3.5" /> Pending
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* INVITATIONS */}
+     {/* Pending Invitations Table */}
+{invitations && invitations.length > 0 && (
+  <div className="mt-8 space-y-4">
+    <h2 className="text-xl font-bold tracking-tight text-white mb-1">
+      Pending Invitations
+    </h2>
 
+    <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-sm">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm text-left">
+          <thead className="bg-zinc-950/50 text-zinc-400 border-b border-zinc-800">
+            <tr>
+              <th className="px-6 py-4 font-medium">Email</th>
+              <th className="px-6 py-4 font-medium">Role</th>
+              <th className="px-6 py-4 font-medium">Status</th>
+              <th className="px-6 py-4 font-medium text-right">
+                Delete
+              </th>
+            </tr>
+          </thead>
+
+          <tbody className="divide-y divide-zinc-800">
+            {invitations.map((inv: any) => (
+              <tr
+                key={inv.id}
+                className="hover:bg-zinc-800/20 transition-colors"
+              >
+                <td className="px-6 py-4 font-medium text-zinc-300">
+                  {inv.email}
+                </td>
+
+                <td className="px-6 py-4 capitalize text-zinc-400">
+                  {inv.role}
+                </td>
+
+                <td className="px-6 py-4">
+                  {inv.is_accepted ? (
+                    <span className="flex items-center gap-1.5 text-emerald-400 text-xs font-medium">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Accepted
+                    </span>
+                  ) : new Date(inv.expires_at) < new Date() ? (
+                    <span className="flex items-center gap-1.5 text-red-400 text-xs font-medium">
+                      <Clock className="w-3.5 h-3.5" />
+                      Expired
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-amber-400 text-xs font-medium">
+                      <Clock className="w-3.5 h-3.5" />
+                      Pending
+                    </span>
+                  )}
+                </td>
+
+                <td className="px-6 py-4 text-right">
+                  {user?.role === 'admin' && !inv.is_accepted && (
+                    <button
+                      onClick={() =>
+                        handleDeleteClick(inv.id, inv.email)
+                      }
+                      className="text-red-400 hover:text-red-300 hover:bg-red-500/10 p-1.5 rounded-lg transition-colors"
+                      title="Delete invitation"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+)}
+
+      {/* MODALS */}
       <InviteModal
         isOpen={isInviteOpen}
         onClose={() => setIsInviteOpen(false)}
-        onSuccess={() => {
-          queryClient.invalidateQueries({ queryKey: ['invitations'] });
-        }}
+        onAfterInvite={invalidateInvitations}
+        onSuccess={() => setIsInviteOpen(false)}
       />
+
+      {confirmDeleteId && (
+        <DeleteConfirmModal
+          email={confirmDeleteEmail}
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setConfirmDeleteId(null)}
+          isLoading={deleteInvitationMutation.isPending}
+        />
+      )}
     </div>
   );
 }

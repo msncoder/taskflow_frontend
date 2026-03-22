@@ -48,6 +48,7 @@ async function proxyRequest(request: NextRequest, pathArray: string[]) {
     const fetchOptions: RequestInit = {
       method: request.method,
       headers,
+      cache: 'no-store', // never cache proxy responses — always fetch fresh from backend
     };
 
     if (request.method !== 'GET' && request.method !== 'HEAD') {

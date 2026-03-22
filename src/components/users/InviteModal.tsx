@@ -19,9 +19,10 @@ interface InviteModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  onAfterInvite?: () => Promise<void> | void; // called immediately after API succeeds, before modal closes
 }
 
-export default function InviteModal({ isOpen, onClose, onSuccess }: InviteModalProps) {
+export default function InviteModal({ isOpen, onClose, onSuccess, onAfterInvite }: InviteModalProps) {
   const { user } = useAuthStore();
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -39,6 +40,7 @@ export default function InviteModal({ isOpen, onClose, onSuccess }: InviteModalP
     setServerError(null);
     try {
       await apiClient.post('/invitations/', data);
+      await onAfterInvite?.(); // await refetch BEFORE closing the modal
       reset();
       onSuccess();
       onClose();
