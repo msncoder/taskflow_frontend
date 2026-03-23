@@ -36,29 +36,93 @@ export default function TaskDetailPage() {
     },
   });
 
-  // Toggle Completion Mutation
+  // Toggle Completion Mutation (OPTIMISTIC)
   const toggleMutation = useMutation({
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['tasks', taskId] });
+      await queryClient.cancelQueries({ queryKey: ['tasks'] });
+
+      const prevTask = queryClient.getQueryData<any>(['tasks', taskId]);
+      const prevTasks = queryClient.getQueryData<any[]>(['tasks']);
+
+      // Optimistically update detail
+      if (prevTask) {
+        queryClient.setQueryData(['tasks', taskId], {
+          ...prevTask,
+          is_completed: !prevTask.is_completed,
+        });
+      }
+
+      // Optimistically update list
+      if (prevTasks) {
+        queryClient.setQueryData(['tasks'], (old: any[] = []) =>
+          old.map((t) =>
+            t.id === taskId ? { ...t, is_completed: !t.is_completed } : t
+          )
+        );
+      }
+
+      return { prevTask, prevTasks };
+    },
     mutationFn: async () => {
       await apiClient.patch(`/tasks/${taskId}/toggle-complete`);
     },
-    onSuccess: () => {
+    onError: (_err, _vars, context) => {
+      if (context?.prevTask) {
+        queryClient.setQueryData(['tasks', taskId], context.prevTask);
+      }
+      if (context?.prevTasks) {
+        queryClient.setQueryData(['tasks'], context.prevTasks);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks', taskId] });
-      queryClient.invalidateQueries({ queryKey: ['tasks'] }); // Refresh list view too
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
   });
 
-  // Add Comment Mutation
+  // Add Comment Mutation (OPTIMISTIC)
   const addCommentMutation = useMutation({
+    onMutate: async (body) => {
+      await queryClient.cancelQueries({ queryKey: ['comments', taskId] });
+
+      const prevComments = queryClient.getQueryData<any[]>(['comments', taskId]);
+
+      const tempId = Date.now().toString();
+      const newComment = {
+        id: tempId,
+        body,
+        created_at: new Date().toISOString(),
+        author: {
+          id: user?.id,
+          full_name: user?.full_name || 'Me',
+          role: user?.role,
+        },
+      };
+
+      queryClient.setQueryData(['comments', taskId], (old: any[] = []) => [
+        newComment,
+        ...old,
+      ]);
+
+      return { prevComments };
+    },
     mutationFn: async (body: string) => {
-      await apiClient.post(`/tasks/${taskId}/comments/`, { body });
+      const res = await apiClient.post(`/tasks/${taskId}/comments/`, { body });
+      return res.data;
     },
     onSuccess: () => {
       setCommentBody('');
+    },
+    onError: (err: any, _body, context) => {
+      setCommentError(err.response?.data?.detail || 'Failed to post comment');
+      if (context?.prevComments) {
+        queryClient.setQueryData(['comments', taskId], context.prevComments);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['comments', taskId] });
     },
-    onError: (err: any) => {
-      setCommentError(err.response?.data?.detail || 'Failed to post comment');
-    }
   });
 
   // Delete Task Mutation (Admin Only)

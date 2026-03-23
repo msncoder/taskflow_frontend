@@ -3,10 +3,15 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as z from 'zod';
 import { X, Loader2, Mail } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuthStore } from '@/store/auth-store';
+
+/* -------------------------------------------------------------------------- */
+/* Schema                                                                     */
+/* -------------------------------------------------------------------------- */
 
 const inviteSchema = z.object({
   email: z.string().email('Valid email is required'),
@@ -19,34 +24,67 @@ interface InviteModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  onAfterInvite?: () => Promise<void> | void; // called immediately after API succeeds, before modal closes
+  onAfterInvite?: () => void;
 }
 
-export default function InviteModal({ isOpen, onClose, onSuccess, onAfterInvite }: InviteModalProps) {
+/* -------------------------------------------------------------------------- */
+/* COMPONENT                                                                  */
+/* -------------------------------------------------------------------------- */
+
+export default function InviteModal({
+  isOpen,
+  onClose,
+  onSuccess,
+  onAfterInvite,
+}: InviteModalProps) {
   const { user } = useAuthStore();
+  const queryClient = useQueryClient();
+
   const [serverError, setServerError] = useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
     reset,
-    formState: { errors, isSubmitting },
+    formState: { errors },
   } = useForm<InviteFormValues>({
     resolver: zodResolver(inviteSchema),
     defaultValues: { role: 'employee' },
   });
 
-  const onSubmit = async (data: InviteFormValues) => {
-    setServerError(null);
-    try {
-      await apiClient.post('/invitations/', data);
-      await onAfterInvite?.(); // await refetch BEFORE closing the modal
+  /* ---------------------------------------------------------------------- */
+  /* INVITE MUTATION (🔥 MAIN FIX)                                          */
+  /* ---------------------------------------------------------------------- */
+
+  const inviteMutation = useMutation({
+    mutationFn: (data: InviteFormValues) =>
+      apiClient.post('/invitations/', data),
+
+    onSuccess: async () => {
+      // ✅ tell React Query data changed
+      await queryClient.invalidateQueries({
+        queryKey: ['invitations'],
+      });
+
+      // reset UI
       reset();
       onSuccess();
+      onAfterInvite?.(); // Call the optional callback from parent
       onClose();
-    } catch (err: any) {
-      setServerError(err.response?.data?.detail || 'Failed to send invite');
-    }
+    },
+
+    onError: (err: any) => {
+      setServerError(
+        err.response?.data?.detail || 'Failed to send invite'
+      );
+    },
+  });
+
+  /* ---------------------------------------------------------------------- */
+
+  const onSubmit = (data: InviteFormValues) => {
+    setServerError(null);
+    inviteMutation.mutate(data);
   };
 
   if (!isOpen) return null;
@@ -61,8 +99,13 @@ export default function InviteModal({ isOpen, onClose, onSuccess, onAfterInvite 
           <X className="w-5 h-5" />
         </button>
 
-        <h2 className="text-xl font-bold text-white mb-2">Invite Team Member</h2>
-        <p className="text-sm text-zinc-400 mb-6">Send an email invitation to join your workspace.</p>
+        <h2 className="text-xl font-bold text-white mb-2">
+          Invite Team Member
+        </h2>
+
+        <p className="text-sm text-zinc-400 mb-6">
+          Send an email invitation to join your workspace.
+        </p>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {serverError && (
@@ -71,12 +114,17 @@ export default function InviteModal({ isOpen, onClose, onSuccess, onAfterInvite 
             </div>
           )}
 
+          {/* EMAIL */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-300">Email Address</label>
+            <label className="text-sm font-medium text-zinc-300">
+              Email Address
+            </label>
+
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <Mail className="h-4 w-4 text-zinc-500" />
               </div>
+
               <input
                 {...register('email')}
                 type="email"
@@ -84,41 +132,65 @@ export default function InviteModal({ isOpen, onClose, onSuccess, onAfterInvite 
                 placeholder="colleague@company.com"
               />
             </div>
-            {errors.email && <p className="text-sm text-red-400">{errors.email.message}</p>}
+
+            {errors.email && (
+              <p className="text-sm text-red-400">
+                {errors.email.message}
+              </p>
+            )}
           </div>
 
+          {/* ROLE */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-300">Role</label>
+            <label className="text-sm font-medium text-zinc-300">
+              Role
+            </label>
+
             <select
               {...register('role')}
               className="block w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="employee">Employee</option>
-              {user?.role === 'admin' && <option value="manager">Manager</option>}
+              {user?.role === 'admin' && (
+                <option value="manager">Manager</option>
+              )}
             </select>
-            {errors.role && <p className="text-sm text-red-400">{errors.role.message}</p>}
+
+            {errors.role && (
+              <p className="text-sm text-red-400">
+                {errors.role.message}
+              </p>
+            )}
+
             <p className="text-xs text-zinc-500 mt-1">
-              {user?.role === 'manager' 
-                ? "Managers can only invite employees." 
-                : "Admins can invite both managers and employees."}
+              {user?.role === 'manager'
+                ? 'Managers can only invite employees.'
+                : 'Admins can invite both managers and employees.'}
             </p>
           </div>
 
+          {/* ACTIONS */}
           <div className="pt-4 flex justify-end gap-3">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-zinc-300 hover:text-white transition-colors"
+              className="px-4 py-2 text-sm font-medium text-zinc-300 hover:text-white"
             >
               Cancel
             </button>
+
             <button
               type="submit"
-              disabled={isSubmitting}
-              className="flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+              disabled={inviteMutation.isPending}
+              className="flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
             >
-              {isSubmitting && <Loader2 className="animate-spin -ml-1 mr-2 h-4 w-4" />}
-              {isSubmitting ? 'Sending...' : 'Send Invite'}
+              {inviteMutation.isPending && (
+                <Loader2 className="animate-spin -ml-1 mr-2 h-4 w-4" />
+              )}
+
+              {inviteMutation.isPending
+                ? 'Sending...'
+                : 'Send Invite'}
             </button>
           </div>
         </form>

@@ -110,66 +110,86 @@ export default function UsersPage() {
 
   /* ----------------------------- USERS QUERY ----------------------------- */
 
-  const { data: users, isLoading } = useQuery({
-    queryKey: ['users'],
-    queryFn: fetchUsers,
-  });
+ const { data: users, isLoading } = useQuery({
+  queryKey: ['users'],
+  queryFn: fetchUsers,
+  staleTime: 1000 * 60, // ✅ 1 min cache
+  refetchOnWindowFocus: false,
+});
 
   /* -------------------------- INVITATIONS QUERY -------------------------- */
 
-  const { data: invitations } = useQuery({
-    queryKey: ['invitations'],
-    queryFn: fetchInvitations,
-    enabled: user?.role === 'admin' || user?.role === 'manager',
+const { data: invitations } = useQuery({
+  queryKey: ['invitations'],
+  queryFn: fetchInvitations,
+  enabled: user?.role === 'admin' || user?.role === 'manager',
 
-    // ⭐ AUTO REFRESH FIXES
-    staleTime: 0,
-    refetchOnWindowFocus: true,
-    refetchOnMount: true,
-    retry: false,
-  });
+  staleTime: 0, // 🔥 Keep invitations fresh
+  refetchOnWindowFocus: true,
+});
 
   /* --------------------------- MUTATIONS -------------------------------- */
 
   // deactivate user
   const deactivateMutation = useMutation({
     mutationFn: (id: string) => apiClient.delete(`/users/${id}`),
-    onSuccess: () => {
+    
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ['users'] });
+      const previous = queryClient.getQueryData<any[]>(['users']);
+      
+      queryClient.setQueryData(['users'], (old: any[] = []) =>
+        old.map((u) => (u.id === id ? { ...u, is_active: false } : u))
+      );
+      
+      return { previous };
+    },
+    
+    onError: (_err, _id, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['users'], context.previous);
+      }
+    },
+    
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
     },
   });
 
   // delete invitation (OPTIMISTIC)
-  const deleteInvitationMutation = useMutation({
-    mutationFn: (id: string) =>
-      apiClient.delete(`/invitations/${id}`),
+const deleteInvitationMutation = useMutation({
+  mutationFn: (id: string) =>
+    apiClient.delete(`/invitations/${id}`),
 
-    onMutate: async (id) => {
-      await queryClient.cancelQueries({ queryKey: ['invitations'] });
+  // ✅ INSTANT UI UPDATE
+  onMutate: async (id) => {
+    await queryClient.cancelQueries({ queryKey: ['invitations'] });
 
-      const previous =
-        queryClient.getQueryData<any[]>(['invitations']);
+    const previous =
+      queryClient.getQueryData<any[]>(['invitations']);
 
-      queryClient.setQueryData(['invitations'], (old: any[] = []) =>
-        old.filter((i) => i.id !== id)
+    queryClient.setQueryData(['invitations'], (old: any[] = []) =>
+      old.filter((i) => i.id !== id)
+    );
+
+    return { previous };
+  },
+
+  // rollback if error
+  onError: (_err, _id, context) => {
+    if (context?.previous) {
+      queryClient.setQueryData(
+        ['invitations'],
+        context.previous
       );
+    }
+  },
 
-      return { previous };
-    },
-
-    onError: (_err, _id, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(
-          ['invitations'],
-          context.previous
-        );
-      }
-    },
-
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['invitations'] });
-    },
-  });
+  // ✅ background sync ALWAYS
+  onSettled: () => {
+    queryClient.invalidateQueries({ queryKey: ['invitations'] });
+  },
+});
 
   /* --------------------------- HANDLERS -------------------------------- */
 

@@ -28,7 +28,11 @@ async function proxyRequest(request: NextRequest, pathArray: string[]) {
   try {
     const path = pathArray ? pathArray.join('/') : '';
     const searchParams = request.nextUrl.searchParams.toString();
-    const targetUrl = `${BACKEND_URL}/${path}${searchParams ? `?${searchParams}` : ''}`;
+    
+    // 🔥 CACHE BUSTER: Add a timestamp to the URL to bypass any intermediate caching
+    const timestamp = Date.now();
+    const connector = searchParams ? '&' : '?';
+    const targetUrl = `${BACKEND_URL}/${path}${searchParams ? `?${searchParams}` : ''}${connector}_cb=${timestamp}`;
     
     // Extract access_token from httpOnly cookies securely
     const accessToken = request.cookies.get('access_token')?.value;
@@ -72,6 +76,19 @@ async function proxyRequest(request: NextRequest, pathArray: string[]) {
     // Forward the response back to Next.js
     const responseHeaders = new Headers(response.headers);
     
+    // 🔥 CRITICAL: Prevent ANY caching of API data in the browser or intermediate layers
+    responseHeaders.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    responseHeaders.set('Pragma', 'no-cache');
+    responseHeaders.set('Expires', '0');
+    
+    // Status 204 and 304 MUST NOT have a body
+    if (response.status === 204 || response.status === 304) {
+      return new NextResponse(null, {
+        status: response.status,
+        headers: responseHeaders,
+      });
+    }
+
     const result = await response.text();
     
     return new NextResponse(result, {
