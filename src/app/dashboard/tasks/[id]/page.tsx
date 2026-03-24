@@ -7,6 +7,7 @@ import { useAuthStore } from '@/store/auth-store';
 import { apiClient } from '@/lib/api-client';
 import { Loader2, ArrowLeft, CheckCircle2, Circle, Clock, MessageSquare, Calendar, Trash2 } from 'lucide-react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 
 export default function TaskDetailPage() {
   const { id } = useParams();
@@ -113,9 +114,11 @@ export default function TaskDetailPage() {
     },
     onSuccess: () => {
       setCommentBody('');
+      toast.success('Comment posted');
     },
     onError: (err: any, _body, context) => {
       setCommentError(err.response?.data?.detail || 'Failed to post comment');
+      toast.error('Failed to post comment');
       if (context?.prevComments) {
         queryClient.setQueryData(['comments', taskId], context.prevComments);
       }
@@ -131,7 +134,13 @@ export default function TaskDetailPage() {
       await apiClient.delete(`/tasks/${taskId}`);
     },
     onSuccess: () => {
+      toast.success('Task deleted successfully');
       router.push('/dashboard/tasks');
+    },
+    onError: (err: any) => {
+      toast.error('Failed to delete task', {
+        description: err.response?.data?.detail || 'An error occurred.',
+      });
     }
   });
 
@@ -142,6 +151,10 @@ export default function TaskDetailPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['comments', taskId] });
+      toast.success('Comment deleted');
+    },
+    onError: (err: any) => {
+      toast.error('Failed to delete comment');
     }
   });
 

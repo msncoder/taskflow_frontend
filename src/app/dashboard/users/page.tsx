@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import InviteModal from '@/components/users/InviteModal';
+import { toast } from 'sonner';
 
 /* -------------------------------------------------------------------------- */
 /* Confirm Modal                                                              */
@@ -153,6 +154,9 @@ const { data: invitations } = useQuery({
     
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast.success('User deactivated', {
+        description: 'The user will no longer be able to access the platform.',
+      });
     },
   });
 
@@ -176,7 +180,10 @@ const deleteInvitationMutation = useMutation({
   },
 
   // rollback if error
-  onError: (_err, _id, context) => {
+  onError: (err: any, _id, context) => {
+    toast.error('Failed to revoke invitation', {
+      description: err.response?.data?.detail || 'An error occurred.',
+    });
     if (context?.previous) {
       queryClient.setQueryData(
         ['invitations'],
@@ -188,6 +195,7 @@ const deleteInvitationMutation = useMutation({
   // ✅ background sync ALWAYS
   onSettled: () => {
     queryClient.invalidateQueries({ queryKey: ['invitations'] });
+    toast.success('Invitation revoked successfully');
   },
 });
 

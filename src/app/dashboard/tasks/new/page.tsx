@@ -9,6 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Loader2, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { apiClient } from '@/lib/api-client';
+import { toast } from 'sonner';
 
 const taskSchema = z.object({
   title: z.string().min(1, 'Title is required').max(100),
@@ -53,10 +54,15 @@ export default function NewTaskPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      toast.success('Task created successfully');
       router.push('/dashboard/tasks');
     },
     onError: (error: any) => {
-      setServerError(error.response?.data?.detail || 'Failed to create task');
+      const message = error.response?.data?.detail || 'Failed to create task';
+      setServerError(message);
+      toast.error('Failed to create task', {
+        description: message,
+      });
     },
   });
 

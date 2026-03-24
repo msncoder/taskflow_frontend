@@ -8,6 +8,7 @@ import * as z from 'zod';
 import { X, Loader2, Mail } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuthStore } from '@/store/auth-store';
+import { toast } from 'sonner';
 
 /* -------------------------------------------------------------------------- */
 /* Schema                                                                     */
@@ -66,6 +67,10 @@ export default function InviteModal({
         queryKey: ['invitations'],
       });
 
+      toast.success('Invitation sent successfully!', {
+        description: 'An email has been sent to the team member.',
+      });
+
       // reset UI
       reset();
       onSuccess();
@@ -74,9 +79,11 @@ export default function InviteModal({
     },
 
     onError: (err: any) => {
-      setServerError(
-        err.response?.data?.detail || 'Failed to send invite'
-      );
+      const message = err.response?.data?.detail || 'Failed to send invite';
+      setServerError(message);
+      toast.error('Failed to send invitation', {
+        description: message,
+      });
     },
   });
 

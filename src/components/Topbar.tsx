@@ -10,7 +10,13 @@ import Link from 'next/link';
 export default function Topbar() {
   const { user } = useAuthStore();
   const [isOpen, setIsOpen] = useState(false);
+  const [lastChecked, setLastChecked] = useState<number>(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const stored = localStorage.getItem('last_notif_check');
+    if (stored) setLastChecked(parseInt(stored));
+  }, []);
 
   // Fetch recent tasks to use as notifications
   const { data: tasks, isLoading } = useQuery({
@@ -23,7 +29,20 @@ export default function Topbar() {
   });
 
   const recent = tasks?.slice(0, 5) ?? [];
-  const hasNotifications = recent.length > 0;
+  
+  // 🔥 SMART BADGE: Only show dot if there's a task newer than our last check
+  const hasNewNotifications = recent.some(
+    (t: any) => new Date(t.created_at).getTime() > lastChecked
+  );
+
+  const handleOpenDropdown = () => {
+    setIsOpen((prev) => !prev);
+    if (!isOpen) { // When opening
+      const now = Date.now();
+      setLastChecked(now);
+      localStorage.setItem('last_notif_check', now.toString());
+    }
+  };
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -52,12 +71,12 @@ export default function Topbar() {
         {/* Notification Bell */}
         <div className="relative" ref={dropdownRef}>
           <button
-            onClick={() => setIsOpen((prev) => !prev)}
+            onClick={handleOpenDropdown}
             className="relative text-zinc-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-zinc-800"
             aria-label="Notifications"
           >
             <Bell className="w-5 h-5" />
-            {hasNotifications && (
+            {hasNewNotifications && (
               <span className="absolute top-0 right-0 w-2 h-2 bg-indigo-500 rounded-full border-2 border-zinc-900" />
             )}
           </button>
